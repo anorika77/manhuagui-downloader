@@ -16,10 +16,10 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Setup node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 18
           cache: 'pnpm'
@@ -39,7 +39,7 @@ jobs:
       - name: Install dependencies (macos)
         if: matrix.os == 'macos-latest'
         run: |
-          brew installwebkit2gtk
+          brew install webkit2gtk
 
       - name: Install dependencies (windows)
         if: matrix.os == 'windows-latest'
@@ -47,7 +47,7 @@ jobs:
           choco install webkit2gtk
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v2
+        uses: pnpm/action-setup@v3
         with:
           version: latest
 
@@ -59,7 +59,7 @@ jobs:
 
       - name: Upload artifacts (ubuntu)
         if: matrix.os == 'ubuntu-22.04'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4  # 已升级到v4
         with:
           name: linux-artifacts
           path: |
@@ -68,7 +68,7 @@ jobs:
 
       - name: Upload artifacts (windows)
         if: matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4  # 已升级到v4
         with:
           name: windows-artifacts
           path: |
@@ -77,7 +77,7 @@ jobs:
 
       - name: Upload artifacts (macos)
         if: matrix.os == 'macos-latest'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4  # 已升级到v4
         with:
           name: macos-artifacts
           path: |
@@ -85,7 +85,7 @@ jobs:
             src-tauri/target/release/manhuagui-downloader
 
       - name: Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
