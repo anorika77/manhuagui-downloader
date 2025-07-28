@@ -1,4 +1,4 @@
-name: Publish
+name: Publish Debian Artifact
 on:
   push:
     tags: ['v*']
@@ -6,91 +6,44 @@ on:
     types: [published]
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+  build-debian:
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 18
         uses: actions/setup-node@v4
         with:
           node-version: 18
-          cache: 'pnpm'
 
-      - name: Install pnpm
+      - name: Install pnpm Globally
         run: npm install -g pnpm
 
-      - name: Install Rust
+      - name: Install Rust Stable
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
 
-      # Ubuntu 依赖（增加重试）
-      - name: Install Ubuntu Dependencies
-        if: matrix.os == 'ubuntu-22.04'
+      - name: Install Debian Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --fix-missing \
-            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
-            build-essential curl wget libssl-dev libgtk-3-dev libayatana-appindicator3-dev || \
-          sudo apt-get install -y --fix-missing \
-            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
             build-essential curl wget libssl-dev libgtk-3-dev libayatana-appindicator3-dev
-
-      # macOS 依赖（修复为 webkitgtk）
-      - name: Install macOS Dependencies
-        if: matrix.os == 'macos-latest'
-        run: brew install webkitgtk
-
-      # Windows 依赖（指定版本）
-      - name: Install Windows Dependencies
-        if: matrix.os == 'windows-latest'
-        run: choco install webkitgtk --version=2.42.5
 
       - name: Install Frontend Dependencies
         run: pnpm install
 
-      - name: Build Project
+      - name: Build Tauri App
         run: pnpm tauri build
 
-      - name: Upload Ubuntu Artifacts
-        if: matrix.os == 'ubuntu-22.04'
+      - name: Upload Debian Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: linux-artifacts
-          path: |
-            src-tauri/target/release/bundle/deb/*.deb
-            src-tauri/target/release/manhuagui-downloader
-
-      - name: Upload Windows Artifacts
-        if: matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-artifacts
-          path: |
-            src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/manhuagui-downloader.exe
-
-      - name: Upload macOS Artifacts
-        if: matrix.os == 'macos-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-artifacts
-          path: |
-            src-tauri/target/release/bundle/dmg/*.dmg
-            src-tauri/target/release/manhuagui-downloader
+          name: debian-package
+          path: src-tauri/target/release/bundle/deb/*.deb
 
       - name: Release to GitHub
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: |
-            src-tauri/target/release/bundle/deb/*.deb
-            src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/bundle/dmg/*.dmg
-            src-tauri/target/release/manhuagui-downloader
-            src-tauri/target/release/manhuagui-downloader.exe
+          files: src-tauri/target/release/bundle/deb/*.deb
