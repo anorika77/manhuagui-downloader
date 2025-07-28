@@ -4,6 +4,7 @@ on:
     tags: ['v*']
   release:
     types: [published]
+
 jobs:
   build:
     strategy:
@@ -13,33 +14,51 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
+      # 关键：显式设置 Node.js 环境，确保 pnpm 路径正确
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 18
-          cache: 'pnpm'
+          cache: 'pnpm'  # 自动缓存加速
+
+      # 强制全局安装 pnpm（解决找不到命令问题）
       - name: Install pnpm
         run: npm install -g pnpm
+
+      # 安装 Rust（仓库依赖 Tauri，必须有 Rust 环境）
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+
+      # Ubuntu 依赖（适配 Debian 需的库）
       - name: Install Ubuntu Dependencies
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
             build-essential curl wget libssl-dev libgtk-3-dev libayatana-appindicator3-dev
+
+      # macOS 依赖
       - name: Install macOS Dependencies
         if: matrix.os == 'macos-latest'
         run: brew install webkit2gtk
+
+      # Windows 依赖
       - name: Install Windows Dependencies
         if: matrix.os == 'windows-latest'
         run: choco install webkit2gtk
+
+      # 安装前端依赖（pnpm 必用）
       - name: Install Frontend Dependencies
         run: pnpm install
+
+      # 构建项目（Tauri 编译）
       - name: Build Project
         run: pnpm tauri build
+
+      # 上传产物（Debian 用 .deb 包）
       - name: Upload Ubuntu Artifacts
         if: matrix.os == 'ubuntu-22.04'
         uses: actions/upload-artifact@v4
@@ -48,6 +67,8 @@ jobs:
           path: |
             src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/manhuagui-downloader
+
+      # 上传 Windows 产物
       - name: Upload Windows Artifacts
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
@@ -56,6 +77,8 @@ jobs:
           path: |
             src-tauri/target/release/bundle/msi/*.msi
             src-tauri/target/release/manhuagui-downloader.exe
+
+      # 上传 macOS 产物
       - name: Upload macOS Artifacts
         if: matrix.os == 'macos-latest'
         uses: actions/upload-artifact@v4
@@ -64,6 +87,8 @@ jobs:
           path: |
             src-tauri/target/release/bundle/dmg/*.dmg
             src-tauri/target/release/manhuagui-downloader
+
+      # 发布到 GitHub Releases
       - name: Release to GitHub
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
