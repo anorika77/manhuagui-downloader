@@ -1,4 +1,4 @@
-name: Build and Package
+name: Build Tauri App
 
 on:
   push:
@@ -7,149 +7,57 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
-
 jobs:
-  package:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v5
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          python-version: "3.10"
+          node-version: 20
 
-      - name: Install dependencies (inferred)
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system dependencies (Tauri requires webkit2gtk and others)
         run: |
-          python -m pip install --upgrade pip
-          pip install requests beautifulsoup4 lxml
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
 
-      - name: Debug - Show repository structure
+      - name: Install npm dependencies
+        run: npm install
+
+      - name: Build Tauri app (Linux)
         run: |
-          echo "=== Full directory tree ==="
-          find . -type f 2>/dev/null | head -100
-          echo "=== Files containing 'def main' ==="
-          grep -rl "def main" . --include="*.py" 2>/dev/null
-          echo "=== Files containing '__name__' ==="
-          grep -rl "__name__" . --include="*.py" 2>/dev/null
-          echo "=== All .py files ==="
-          find . -name "*.py" -type f 2>/dev/null
+          cargo tauri build --bundles deb,appimage
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ''  # 如果需要签名可以设置
 
-      - name: Build binary with PyInstaller
-        run: |
-          pip install pyinstaller
-          
-          # 先尝试查找入口文件
-          ENTRY=""
-          
-          # 1. 查找最常见的入口模式
-          for pattern in "__main__.py" "main.py" "cli.py" "app.py" "run.py" "start.py" "entry.py"; do
-            found=$(find . -name "$pattern" -type f 2>/dev/null)
-            if [ -n "$found" ]; then
-              echo "Found $pattern: $found"
-              ENTRY=$(echo "$found" | head -1)
-              break
-            fi
-          done
-          
-          # 2. 如果没有找到，搜索包含 'def main' 的文件
-          if [ -z "$ENTRY" ]; then
-            ENTRY=$(grep -rl "def main" . --include="*.py" 2>/dev/null | head -1)
-            if [ -n "$ENTRY" ]; then
-              echo "Using file with 'def main': $ENTRY"
-            fi
-          fi
-          
-          # 3. 如果还没有，搜索所有 .py 文件并选择最长的（通常是主文件）
-          if [ -z "$ENTRY" ]; then
-            echo "Looking for any Python executable script..."
-            for f in $(find . -name "*.py" -type f 2>/dev/null); do
-              # 检查文件是否可执行或包含 shebang
-              if head -1 "$f" 2>/dev/null | grep -q "python"; then
-                ENTRY="$f"
-                echo "Found script with shebang: $ENTRY"
-                break
-              fi
-            done
-          fi
-          
-          # 4. 最后尝试使用项目根目录下的任何 .py 文件
-          if [ -z "$ENTRY" ]; then
-            ALL_PY_FILES=$(find . -name "*.py" -type f 2>/dev/null)
-            if [ -n "$ALL_PY_FILES" ]; then
-              # 选择第一个非空文件
-              for f in $ALL_PY_FILES; do
-                if [ -s "$f" ]; then
-                  ENTRY="$f"
-                  echo "Using first non-empty Python file: $ENTRY"
-                  break
-                fi
-              done
-            fi
-          fi
-          
-          # 如果找到了入口文件
-          if [ -n "$ENTRY" ]; then
-            echo "Building with entry point: $ENTRY"
-            pyinstaller --onefile --name manhuagui-downloader "$ENTRY"
-          else
-            echo "ERROR: Could not find any Python entry point!"
-            echo "Repository structure:"
-            find . -type f | head -50
-            exit 1
-          fi
-          
-          # 检查产物
-          if [ -f "dist/manhuagui-downloader" ]; then
-            echo "Successfully created binary"
-            ls -la dist/
-          else
-            echo "Failed to create binary"
-            exit 1
-          fi
-
-      - name: Upload binary as artifact
+      - name: Upload artifact (AppImage)
         uses: actions/upload-artifact@v4
         with:
-          name: manhuagui-downloader-linux-amd64
-          path: dist/manhuagui-downloader
+          name: manhuagui-downloader-linux-amd64-AppImage
+          path: src-tauri/target/release/bundle/appimage/*.AppImage
 
-  docker:
-    runs-on: ubuntu-latest
-    needs: package
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+      - name: Upload artifact (deb)
+        uses: actions/upload-artifact@v4
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          name: manhuagui-downloader-linux-amd64-deb
+          path: src-tauri/target/release/bundle/deb/*.deb
 
-      - name: Extract metadata for Docker
-        id: meta
-        uses: docker/metadata-action@v5
+      - name: Upload artifact (raw binary)
+        uses: actions/upload-artifact@v4
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=sha,prefix={{branch}}-
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64
+          name: manhuagui-downloader-linux-amd64-binary
+          path: src-tauri/target/release/manhuagui-downloader
