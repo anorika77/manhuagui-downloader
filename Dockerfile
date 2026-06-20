@@ -1,18 +1,11 @@
-FROM python:3.10-slim AS builder
+FROM python:3.10-slim
 
 WORKDIR /app
 COPY . .
 
 RUN pip install --upgrade pip && \
-    if [ -f requirements.txt ]; then pip install -r requirements.txt; \
-    elif [ -f Pipfile ]; then pip install pipenv && pipenv install --system; \
-    elif [ -f pyproject.toml ]; then pip install .; \
-    else pip install .; fi
+    pip install requests beautifulsoup4 lxml
 
-FROM python:3.10-slim
-WORKDIR /app
-COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
-COPY --from=builder /app /app
-
-# 假设入口是 src 下的模块
+# 入口：假设是 src 下的模块（如果有的话），否则用 main.py
+# 请根据实际情况修改 ENTRYPOINT
 ENTRYPOINT ["python", "-m", "manhuagui_downloader"]
