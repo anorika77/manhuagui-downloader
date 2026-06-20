@@ -27,34 +27,89 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests beautifulsoup4 lxml
 
+      - name: Debug - Show repository structure
+        run: |
+          echo "=== Full directory tree ==="
+          find . -type f 2>/dev/null | head -100
+          echo "=== Files containing 'def main' ==="
+          grep -rl "def main" . --include="*.py" 2>/dev/null
+          echo "=== Files containing '__name__' ==="
+          grep -rl "__name__" . --include="*.py" 2>/dev/null
+          echo "=== All .py files ==="
+          find . -name "*.py" -type f 2>/dev/null
+
       - name: Build binary with PyInstaller
         run: |
           pip install pyinstaller
-          # 递归查找所有包含 if __name__ 的 Python 文件
-          ENTRY=$(find . -name "*.py" -type f -exec grep -l "if __name__" {} + 2>/dev/null | head -1)
-          if [ -n "$ENTRY" ]; then
-            echo "Found entry point: $ENTRY"
-            pyinstaller --onefile --name manhuagui-downloader "$ENTRY"
-          else
-            echo "No entry point with __name__ found. Trying common file names..."
-            for f in "main.py" "app.py" "cli.py" "run.py" "start.py" \
-                     "src/manhuagui_downloader/main.py" \
-                     "src/manhuagui_downloader/__main__.py" \
-                     "manhuagui_downloader.py"; do
-              if [ -f "$f" ]; then
-                echo "Using $f as entry"
-                pyinstaller --onefile --name manhuagui-downloader "$f"
+          
+          # 先尝试查找入口文件
+          ENTRY=""
+          
+          # 1. 查找最常见的入口模式
+          for pattern in "__main__.py" "main.py" "cli.py" "app.py" "run.py" "start.py" "entry.py"; do
+            found=$(find . -name "$pattern" -type f 2>/dev/null)
+            if [ -n "$found" ]; then
+              echo "Found $pattern: $found"
+              ENTRY=$(echo "$found" | head -1)
+              break
+            fi
+          done
+          
+          # 2. 如果没有找到，搜索包含 'def main' 的文件
+          if [ -z "$ENTRY" ]; then
+            ENTRY=$(grep -rl "def main" . --include="*.py" 2>/dev/null | head -1)
+            if [ -n "$ENTRY" ]; then
+              echo "Using file with 'def main': $ENTRY"
+            fi
+          fi
+          
+          # 3. 如果还没有，搜索所有 .py 文件并选择最长的（通常是主文件）
+          if [ -z "$ENTRY" ]; then
+            echo "Looking for any Python executable script..."
+            for f in $(find . -name "*.py" -type f 2>/dev/null); do
+              # 检查文件是否可执行或包含 shebang
+              if head -1 "$f" 2>/dev/null | grep -q "python"; then
+                ENTRY="$f"
+                echo "Found script with shebang: $ENTRY"
                 break
               fi
             done
           fi
-          # 检查产物是否生成
-          if [ ! -f "dist/manhuagui-downloader" ]; then
-            echo "Failed to create binary. Current directory structure:"
-            find . -name "*.py" -type f
+          
+          # 4. 最后尝试使用项目根目录下的任何 .py 文件
+          if [ -z "$ENTRY" ]; then
+            ALL_PY_FILES=$(find . -name "*.py" -type f 2>/dev/null)
+            if [ -n "$ALL_PY_FILES" ]; then
+              # 选择第一个非空文件
+              for f in $ALL_PY_FILES; do
+                if [ -s "$f" ]; then
+                  ENTRY="$f"
+                  echo "Using first non-empty Python file: $ENTRY"
+                  break
+                fi
+              done
+            fi
+          fi
+          
+          # 如果找到了入口文件
+          if [ -n "$ENTRY" ]; then
+            echo "Building with entry point: $ENTRY"
+            pyinstaller --onefile --name manhuagui-downloader "$ENTRY"
+          else
+            echo "ERROR: Could not find any Python entry point!"
+            echo "Repository structure:"
+            find . -type f | head -50
             exit 1
           fi
-          ls -la dist/
+          
+          # 检查产物
+          if [ -f "dist/manhuagui-downloader" ]; then
+            echo "Successfully created binary"
+            ls -la dist/
+          else
+            echo "Failed to create binary"
+            exit 1
+          fi
 
       - name: Upload binary as artifact
         uses: actions/upload-artifact@v4
