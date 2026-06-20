@@ -1,34 +1,59 @@
+name: Build Tauri App
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
       - name: Sync Tauri npm packages with Rust crate versions
         run: |
           cd src-tauri
-          # 从 Cargo.lock 提取版本（awk 模式：找到 "name = \"xxx\"" 行后，在接下来的行中找 "version = "）
-          TAURI_VER=$(awk '/^name = "tauri"$/,/^version = /{if(/^version = /){gsub(/"/,"");print $NF;exit}}' Cargo.lock)
-          DIALOG_VER=$(awk '/^name = "tauri-plugin-dialog"$/,/^version = /{if(/^version = /){gsub(/"/,"");print $NF;exit}}' Cargo.lock)
-          OPENER_VER=$(awk '/^name = "tauri-plugin-opener"$/,/^version = /{if(/^version = /){gsub(/"/,"");print $NF;exit}}' Cargo.lock)
+          TAURI_VER=$(grep -A2 '^name = "tauri"$' Cargo.lock | grep 'version = ' | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          DIALOG_VER=$(grep -A2 '^name = "tauri-plugin-dialog"$' Cargo.lock | grep 'version = ' | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          OPENER_VER=$(grep -A2 '^name = "tauri-plugin-opener"$' Cargo.lock | grep 'version = ' | head -1 | sed 's/.*"\(.*\)".*/\1/')
           cd ..
           echo "Extracted versions: tauri=$TAURI_VER dialog=$DIALOG_VER opener=$OPENER_VER"
-          
-          # 调试：如果某个版本为空，打印 Cargo.lock 中相关内容
-          if [ -z "$TAURI_VER" ]; then
-            echo "Debug: searching for 'tauri' in Cargo.lock"
-            grep -A5 -E '^name = "tauri"$' src-tauri/Cargo.lock | head -10
-          fi
-          if [ -z "$DIALOG_VER" ]; then
-            echo "Debug: searching for 'tauri-plugin-dialog' in Cargo.lock"
-            grep -A5 -E '^name = "tauri-plugin-dialog"$' src-tauri/Cargo.lock | head -10
-          fi
-          if [ -z "$OPENER_VER" ]; then
-            echo "Debug: searching for 'tauri-plugin-opener' in Cargo.lock"
-            grep -A5 -E '^name = "tauri-plugin-opener"$' src-tauri/Cargo.lock | head -10
-          fi
-          
-          # 必须全部非空
           if [ -z "$TAURI_VER" ] || [ -z "$DIALOG_VER" ] || [ -z "$OPENER_VER" ]; then
+            echo "Debug: Checking Cargo.lock for package names..."
+            grep -E '^name = "(tauri|tauri-plugin-dialog|tauri-plugin-opener)"$' src-tauri/Cargo.lock
             echo "ERROR: Could not extract versions from Cargo.lock"
             exit 1
           fi
-          
-          # 用 jq 更新 package.json
           mv package.json package.json.bak
           jq --arg tauri "$TAURI_VER" \
              --arg dialog "$DIALOG_VER" \
@@ -40,3 +65,30 @@
              package.json.bak > package.json
           echo "Updated package.json:"
           cat package.json
+
+      - name: Install Node dependencies
+        run: pnpm install
+
+      - name: Build Tauri app (Linux)
+        run: pnpm tauri build --bundles deb,appimage
+
+      - name: Upload artifact (AppImage)
+        uses: actions/upload-artifact@v4
+        with:
+          name: manhuagui-downloader-linux-amd64-AppImage
+          path: |
+            src-tauri/target/release/bundle/appimage/*.AppImage
+
+      - name: Upload artifact (deb)
+        uses: actions/upload-artifact@v4
+        with:
+          name: manhuagui-downloader-linux-amd64-deb
+          path: |
+            src-tauri/target/release/bundle/deb/*.deb
+
+      - name: Upload artifact (raw binary)
+        uses: actions/upload-artifact@v4
+        with:
+          name: manhuagui-downloader-linux-amd64-binary
+          path: |
+            src-tauri/target/release/manhuagui-downloader
