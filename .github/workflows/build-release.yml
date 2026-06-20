@@ -1,0 +1,68 @@
+name: Build Docker and x86 Executable
+
+on:
+  push:
+    branches:
+      - main  # 当推送到 main 分支时触发，你可以改成 master
+  workflow_dispatch: # 允许在 GitHub 页面上手动触发
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ==========================================
+      # 任务 1: 编译 x86_64 Linux 可执行文件 (使用 PyInstaller)
+      # 适用于飞牛NAS (x86_64 Debian/Ubuntu 核心)
+      # ==========================================
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies and PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build executable with PyInstaller
+        run: |
+          # 打包成单文件，并控制终端输出编码为 UTF-8 防止中文乱码
+          pyinstaller --onefile --name manhuagui-downloader manhuagui_downloader.py
+
+      - name: Upload x86 Executable Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: manhuagui-downloader-x86_64
+          path: dist/manhuagui-downloader
+          
+      # ==========================================
+      # 任务 2: 构建并推送 Docker 镜像
+      # ==========================================
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 登录 GitHub Container Registry (GHCR), 无需额外配置密码，GH Actions 自带权限
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }} # 这是 GitHub 自动提供的，不用自己建 Secret
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64 # 限定 x86_64 架构，适配飞牛NAS
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/manhuagui-downloader:latest
+            ghcr.io/${{ github.repository_owner }}/manhuagui-downloader:${{ github.sha }}
