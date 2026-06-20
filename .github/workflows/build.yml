@@ -5,22 +5,27 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
+
       - name: Install pnpm
         uses: pnpm/action-setup@v2
         with:
           version: 8
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -34,24 +39,44 @@ jobs:
             libssl-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev
+
       - name: Fix package.json versions
         run: |
-          mv package.json package.json.bak
-          jq '.devDependencies["@tauri-apps/cli"] = "^2.2.0" |
-              .dependencies["@tauri-apps/api"] = "^2.2.0" |
-              .dependencies["@tauri-apps/plugin-dialog"] = "^2.2.0" |
-              .dependencies["@tauri-apps/plugin-opener"] = "^2.2.3"' \
-            package.json.bak > package.json
+          cp package.json package.json.bak
+          jq '.devDependencies["@tauri-apps/cli"] = "2.2.0" |
+              .dependencies["@tauri-apps/api"] = "2.2.0" |
+              .dependencies["@tauri-apps/plugin-dialog"] = "2.2.0" |
+              .dependencies["@tauri-apps/plugin-opener"] = "2.2.3"' \
+            package.json.bak > package.json.new
+          mv package.json.new package.json
+          echo "=== Updated package.json ==="
           cat package.json
-      - name: Install dependencies
+          echo "--- Verifying ---"
+          jq '.dependencies["@tauri-apps/api"], .dependencies["@tauri-apps/plugin-dialog"], .dependencies["@tauri-apps/plugin-opener"], .devDependencies["@tauri-apps/cli"]' package.json
+
+      - name: Install Node dependencies
         run: pnpm install
-      - name: Build
+
+      - name: Build Tauri app (Linux)
         run: pnpm tauri build --bundles deb,appimage
-      - name: Upload artifacts
+
+      - name: Upload artifact (AppImage)
         uses: actions/upload-artifact@v4
         with:
-          name: manhuagui-downloader-linux
+          name: manhuagui-downloader-linux-amd64-AppImage
           path: |
             src-tauri/target/release/bundle/appimage/*.AppImage
+
+      - name: Upload artifact (deb)
+        uses: actions/upload-artifact@v4
+        with:
+          name: manhuagui-downloader-linux-amd64-deb
+          path: |
             src-tauri/target/release/bundle/deb/*.deb
+
+      - name: Upload artifact (raw binary)
+        uses: actions/upload-artifact@v4
+        with:
+          name: manhuagui-downloader-linux-amd64-binary
+          path: |
             src-tauri/target/release/manhuagui-downloader
