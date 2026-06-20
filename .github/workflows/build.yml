@@ -49,8 +49,6 @@ jobs:
               .dependencies["@tauri-apps/plugin-opener"] = "2.2.3"' \
             package.json.bak > package.json.new
           mv package.json.new package.json
-          echo "=== Updated package.json ==="
-          cat package.json
 
       - name: Install Node dependencies
         run: pnpm install
@@ -58,14 +56,11 @@ jobs:
       - name: Build Tauri app (Linux)
         run: pnpm tauri build --bundles deb,appimage
 
-      # ===== 下载 fnpkg 工具 =====
       - name: Download fnpkg
         run: |
           wget -q "https://github.com/FNEX/fnpkg/releases/latest/download/fnpkg-linux-amd64" -O /usr/local/bin/fnpkg
           chmod +x /usr/local/bin/fnpkg
-          fnpkg --help
 
-      # ===== 准备 fpk 包内容 =====
       - name: Prepare fpk package directory
         run: |
           PKG_BASE="${{ runner.temp }}/fpk-package"
@@ -76,47 +71,52 @@ jobs:
           # 复制二进制
           cp src-tauri/target/release/manhuagui-downloader "$PKG_BASE/usr/local/bin/"
 
-          # 创建桌面快捷方式（可选）
-          cat > "$PKG_BASE/usr/share/applications/manhuagui-downloader.desktop" << EOF
-[Desktop Entry]
-Name=Manhuagui Downloader
-Exec=/usr/local/bin/manhuagui-downloader
-Icon=manhuagui-downloader
-Type=Application
-Categories=Utility;Network;
-EOF
+          # 创建桌面文件（使用 printf 避免 heredoc 缩进问题）
+          {
+            printf '[Desktop Entry]\n'
+            printf 'Name=Manhuagui Downloader\n'
+            printf 'Exec=/usr/local/bin/manhuagui-downloader\n'
+            printf 'Icon=manhuagui-downloader\n'
+            printf 'Type=Application\n'
+            printf 'Categories=Utility;Network;\n'
+          } > "$PKG_BASE/usr/share/applications/manhuagui-downloader.desktop"
 
           # 复制图标（如果存在）
           if [ -f "src-tauri/icons/icon.png" ]; then
             cp "src-tauri/icons/icon.png" "$PKG_BASE/usr/share/icons/hicolor/256x256/apps/manhuagui-downloader.png"
           fi
 
-          # 创建启动脚本 run.sh
-          cat > "$PKG_BASE/run.sh" << 'EOF'
-#!/bin/bash
-exec /usr/local/bin/manhuagui-downloader "$@"
-EOF
+          # 创建 run.sh（同上，用 printf）
+          {
+            printf '#!/bin/bash\n'
+            printf 'exec /usr/local/bin/manhuagui-downloader "$@"\n'
+          } > "$PKG_BASE/run.sh"
           chmod +x "$PKG_BASE/run.sh"
 
-          # 创建 manifest.json（飞牛必需）
-          cat > "$PKG_BASE/manifest.json" << EOF
-{
-  "name": "manhuagui-downloader",
-  "version": "0.1.0",
-  "description": "漫画下载工具 - Tauri 桌面应用",
-  "maintainer": "your-email@example.com",
-  "arch": "amd64",
-  "runtime": "run.sh",
-  "entry": "run.sh",
-  "dependencies": [],
-  "environment": {}
-}
-EOF
+          # 创建 manifest.json（用 jq 生成，专业且避免引号问题）
+          jq -n \
+            --arg name "manhuagui-downloader" \
+            --arg version "0.1.0" \
+            --arg description "漫画下载工具 - Tauri 桌面应用" \
+            --arg maintainer "your-email@example.com" \
+            --arg arch "amd64" \
+            --arg runtime "run.sh" \
+            --arg entry "run.sh" \
+            '{
+              "name": $name,
+              "version": $version,
+              "description": $description,
+              "maintainer": $maintainer,
+              "arch": $arch,
+              "runtime": $runtime,
+              "entry": $entry,
+              "dependencies": [],
+              "environment": {}
+            }' > "$PKG_BASE/manifest.json"
 
           echo "--- Package content ---"
           find "$PKG_BASE" -type f
 
-      # ===== 使用 fnpkg 打包 =====
       - name: Create fpk package
         run: |
           fnpkg create \
@@ -128,10 +128,8 @@ EOF
             --source "${{ runner.temp }}/fpk-package" \
             --output manhuagui-downloader.fpk
 
-          echo "Generated fpk file:"
           ls -lh manhuagui-downloader.fpk
 
-      # ===== 上传所有构建产物 =====
       - name: Upload fpk artifact
         uses: actions/upload-artifact@v4
         with:
