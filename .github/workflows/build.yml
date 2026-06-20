@@ -1,4 +1,4 @@
-name: Build Tauri App
+name: Build Tauri App & Package for FNOS (fpk)
 
 on:
   push:
@@ -40,7 +40,7 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev
 
-      - name: Fix package.json versions
+      - name: Fix package.json versions (if needed)
         run: |
           cp package.json package.json.bak
           jq '.devDependencies["@tauri-apps/cli"] = "2.2.0" |
@@ -51,8 +51,6 @@ jobs:
           mv package.json.new package.json
           echo "=== Updated package.json ==="
           cat package.json
-          echo "--- Verifying ---"
-          jq '.dependencies["@tauri-apps/api"], .dependencies["@tauri-apps/plugin-dialog"], .dependencies["@tauri-apps/plugin-opener"], .devDependencies["@tauri-apps/cli"]' package.json
 
       - name: Install Node dependencies
         run: pnpm install
@@ -60,23 +58,100 @@ jobs:
       - name: Build Tauri app (Linux)
         run: pnpm tauri build --bundles deb,appimage
 
-      - name: Upload artifact (AppImage)
+      # ===== 下载 fnpkg 工具 =====
+      - name: Download fnpkg
+        run: |
+          wget -q "https://github.com/FNEX/fnpkg/releases/latest/download/fnpkg-linux-amd64" -O /usr/local/bin/fnpkg
+          chmod +x /usr/local/bin/fnpkg
+          fnpkg --help
+
+      # ===== 准备 fpk 包内容 =====
+      - name: Prepare fpk package directory
+        run: |
+          PKG_BASE="${{ runner.temp }}/fpk-package"
+          mkdir -p "$PKG_BASE/usr/local/bin"
+          mkdir -p "$PKG_BASE/usr/share/applications"
+          mkdir -p "$PKG_BASE/usr/share/icons/hicolor/256x256/apps"
+
+          # 复制二进制
+          cp src-tauri/target/release/manhuagui-downloader "$PKG_BASE/usr/local/bin/"
+
+          # 创建桌面快捷方式（可选）
+          cat > "$PKG_BASE/usr/share/applications/manhuagui-downloader.desktop" << EOF
+[Desktop Entry]
+Name=Manhuagui Downloader
+Exec=/usr/local/bin/manhuagui-downloader
+Icon=manhuagui-downloader
+Type=Application
+Categories=Utility;Network;
+EOF
+
+          # 复制图标（如果存在）
+          if [ -f "src-tauri/icons/icon.png" ]; then
+            cp "src-tauri/icons/icon.png" "$PKG_BASE/usr/share/icons/hicolor/256x256/apps/manhuagui-downloader.png"
+          fi
+
+          # 创建启动脚本 run.sh
+          cat > "$PKG_BASE/run.sh" << 'EOF'
+#!/bin/bash
+exec /usr/local/bin/manhuagui-downloader "$@"
+EOF
+          chmod +x "$PKG_BASE/run.sh"
+
+          # 创建 manifest.json（飞牛必需）
+          cat > "$PKG_BASE/manifest.json" << EOF
+{
+  "name": "manhuagui-downloader",
+  "version": "0.1.0",
+  "description": "漫画下载工具 - Tauri 桌面应用",
+  "maintainer": "your-email@example.com",
+  "arch": "amd64",
+  "runtime": "run.sh",
+  "entry": "run.sh",
+  "dependencies": [],
+  "environment": {}
+}
+EOF
+
+          echo "--- Package content ---"
+          find "$PKG_BASE" -type f
+
+      # ===== 使用 fnpkg 打包 =====
+      - name: Create fpk package
+        run: |
+          fnpkg create \
+            --name manhuagui-downloader \
+            --version 0.1.0 \
+            --description "漫画下载工具 - Tauri 桌面应用" \
+            --maintainer "your-email@example.com" \
+            --arch amd64 \
+            --source "${{ runner.temp }}/fpk-package" \
+            --output manhuagui-downloader.fpk
+
+          echo "Generated fpk file:"
+          ls -lh manhuagui-downloader.fpk
+
+      # ===== 上传所有构建产物 =====
+      - name: Upload fpk artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: manhuagui-downloader-fnos-fpk
+          path: manhuagui-downloader.fpk
+
+      - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
         with:
           name: manhuagui-downloader-linux-amd64-AppImage
-          path: |
-            src-tauri/target/release/bundle/appimage/*.AppImage
+          path: src-tauri/target/release/bundle/appimage/*.AppImage
 
-      - name: Upload artifact (deb)
+      - name: Upload deb artifact
         uses: actions/upload-artifact@v4
         with:
           name: manhuagui-downloader-linux-amd64-deb
-          path: |
-            src-tauri/target/release/bundle/deb/*.deb
+          path: src-tauri/target/release/bundle/deb/*.deb
 
-      - name: Upload artifact (raw binary)
+      - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
           name: manhuagui-downloader-linux-amd64-binary
-          path: |
-            src-tauri/target/release/manhuagui-downloader
+          path: src-tauri/target/release/manhuagui-downloader
