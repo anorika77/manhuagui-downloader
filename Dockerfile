@@ -6,6 +6,8 @@ COPY . .
 RUN pip install --upgrade pip && \
     pip install requests beautifulsoup4 lxml
 
-# 入口：假设是 src 下的模块（如果有的话），否则用 main.py
-# 请根据实际情况修改 ENTRYPOINT
-ENTRYPOINT ["python", "-m", "manhuagui_downloader"]
+# 自动检测入口模块（尝试 3 种常见模式）
+# 优先使用 python -m manhuagui_downloader (如果 src/manhuagui_downloader/__main__.py 存在)
+# 其次使用 python src/manhuagui_downloader/main.py
+# 最后使用 python main.py
+CMD ["sh", "-c", "python -m manhuagui_downloader 2>/dev/null || python src/manhuagui_downloader/main.py 2>/dev/null || python main.py"]
