@@ -25,31 +25,34 @@ jobs:
       - name: Install dependencies (inferred)
         run: |
           python -m pip install --upgrade pip
-          # 由于项目没有依赖文件，直接安装常用包（可修改）
           pip install requests beautifulsoup4 lxml
 
       - name: Build binary with PyInstaller
         run: |
           pip install pyinstaller
-          # 尝试多种可能的入口文件
-          if [ -f "src/manhuagui_downloader/main.py" ]; then
-            pyinstaller --onefile --name manhuagui-downloader src/manhuagui_downloader/main.py
-          elif [ -f "main.py" ]; then
-            pyinstaller --onefile --name manhuagui-downloader main.py
-          elif [ -f "cli.py" ]; then
-            pyinstaller --onefile --name manhuagui-downloader cli.py
-          elif [ -f "app.py" ]; then
-            pyinstaller --onefile --name manhuagui-downloader app.py
+          # 递归查找所有包含 if __name__ 的 Python 文件
+          ENTRY=$(find . -name "*.py" -type f -exec grep -l "if __name__" {} + 2>/dev/null | head -1)
+          if [ -n "$ENTRY" ]; then
+            echo "Found entry point: $ENTRY"
+            pyinstaller --onefile --name manhuagui-downloader "$ENTRY"
           else
-            # 如果所有文件都没有，尝试扫描所有 .py 文件寻找带有 if __name__ == '__main__' 的
-            echo "Searching for entry point..."
-            ENTRY=$(grep -rl "if __name__" *.py 2>/dev/null | head -1)
-            if [ -n "$ENTRY" ]; then
-              pyinstaller --onefile --name manhuagui-downloader "$ENTRY"
-            else
-              echo "Cannot find entry point. Please specify the main script manually."
-              exit 1
-            fi
+            echo "No entry point with __name__ found. Trying common file names..."
+            for f in "main.py" "app.py" "cli.py" "run.py" "start.py" \
+                     "src/manhuagui_downloader/main.py" \
+                     "src/manhuagui_downloader/__main__.py" \
+                     "manhuagui_downloader.py"; do
+              if [ -f "$f" ]; then
+                echo "Using $f as entry"
+                pyinstaller --onefile --name manhuagui-downloader "$f"
+                break
+              fi
+            done
+          fi
+          # 检查产物是否生成
+          if [ ! -f "dist/manhuagui-downloader" ]; then
+            echo "Failed to create binary. Current directory structure:"
+            find . -name "*.py" -type f
+            exit 1
           fi
           ls -la dist/
 
