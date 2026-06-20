@@ -56,10 +56,21 @@ jobs:
       - name: Build Tauri app (Linux)
         run: pnpm tauri build --bundles deb,appimage
 
-      - name: Download fnpkg
+      # -------------------- 改用从源码编译 fnpkg --------------------
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build fnpkg from source
         run: |
-          wget -q "https://github.com/FNEX/fnpkg/releases/latest/download/fnpkg-linux-amd64" -O /usr/local/bin/fnpkg
+          git clone https://github.com/FNEX/fnpkg.git /tmp/fnpkg
+          cd /tmp/fnpkg
+          go build -o /usr/local/bin/fnpkg .
           chmod +x /usr/local/bin/fnpkg
+          # 验证安装成功
+          fnpkg --help 2>&1 || true
+      # ----------------------------------------------------------------
 
       - name: Prepare fpk package directory
         run: |
