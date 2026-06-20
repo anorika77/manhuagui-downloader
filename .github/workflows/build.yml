@@ -40,13 +40,33 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev
 
+      - name: Sync Tauri npm packages with Rust crate versions
+        run: |
+          # Extract versions from Cargo.lock
+          TAURI_VERSION=$(grep -A2 'name = "tauri"' src-tauri/Cargo.lock | grep 'version =' | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          PLUGIN_DIALOG_VERSION=$(grep -A2 'name = "tauri-plugin-dialog"' src-tauri/Cargo.lock | grep 'version =' | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          PLUGIN_OPENER_VERSION=$(grep -A2 'name = "tauri-plugin-opener"' src-tauri/Cargo.lock | grep 'version =' | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          
+          echo "Cargo versions: tauri=$TAURI_VERSION plugin-dialog=$PLUGIN_DIALOG_VERSION plugin-opener=$PLUGIN_OPENER_VERSION"
+          
+          # Update package.json with matching versions
+          mv package.json package.json.bak
+          jq --arg tauri "$TAURI_VERSION" \
+             --arg dialog "$PLUGIN_DIALOG_VERSION" \
+             --arg opener "$PLUGIN_OPENER_VERSION" \
+             '.devDependencies["@tauri-apps/cli"] = "^\($tauri)" |
+              .dependencies["@tauri-apps/api"] = "^\($tauri)" |
+              .dependencies["@tauri-apps/plugin-dialog"] = "^\($dialog)" |
+              .dependencies["@tauri-apps/plugin-opener"] = "^\($opener)"' \
+             package.json.bak > package.json
+          echo "Updated package.json:"
+          cat package.json
+
       - name: Install Node dependencies
         run: pnpm install
 
       - name: Build Tauri app (Linux)
         run: pnpm tauri build --bundles deb,appimage
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ''  # 如果需要签名可以设置
 
       - name: Upload artifact (AppImage)
         uses: actions/upload-artifact@v4
