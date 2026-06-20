@@ -56,21 +56,25 @@ jobs:
       - name: Build Tauri app (Linux)
         run: pnpm tauri build --bundles deb,appimage
 
-      # -------------------- 改用从源码编译 fnpkg --------------------
+      # 安装 fnpkg — 从源码编译，解决认证问题
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
 
       - name: Build fnpkg from source
+        env:
+          GIT_ASKPASS: echo
+          GIT_TERMINAL_PROMPT: 0
         run: |
-          git clone https://github.com/FNEX/fnpkg.git /tmp/fnpkg
+          # 克隆 fnpkg 仓库
+          git clone --depth 1 https://github.com/FNEX/fnpkg.git /tmp/fnpkg
           cd /tmp/fnpkg
+          # 编译
           go build -o /usr/local/bin/fnpkg .
           chmod +x /usr/local/bin/fnpkg
-          # 验证安装成功
+          # 验证安装
           fnpkg --help 2>&1 || true
-      # ----------------------------------------------------------------
 
       - name: Prepare fpk package directory
         run: |
@@ -82,7 +86,7 @@ jobs:
           # 复制二进制
           cp src-tauri/target/release/manhuagui-downloader "$PKG_BASE/usr/local/bin/"
 
-          # 创建桌面文件（使用 printf 避免 heredoc 缩进问题）
+          # 创建 desktop 文件
           {
             printf '[Desktop Entry]\n'
             printf 'Name=Manhuagui Downloader\n'
@@ -92,19 +96,19 @@ jobs:
             printf 'Categories=Utility;Network;\n'
           } > "$PKG_BASE/usr/share/applications/manhuagui-downloader.desktop"
 
-          # 复制图标（如果存在）
+          # 复制图标
           if [ -f "src-tauri/icons/icon.png" ]; then
             cp "src-tauri/icons/icon.png" "$PKG_BASE/usr/share/icons/hicolor/256x256/apps/manhuagui-downloader.png"
           fi
 
-          # 创建 run.sh（同上，用 printf）
+          # 创建 run.sh
           {
             printf '#!/bin/bash\n'
             printf 'exec /usr/local/bin/manhuagui-downloader "$@"\n'
           } > "$PKG_BASE/run.sh"
           chmod +x "$PKG_BASE/run.sh"
 
-          # 创建 manifest.json（用 jq 生成，专业且避免引号问题）
+          # 创建 manifest.json
           jq -n \
             --arg name "manhuagui-downloader" \
             --arg version "0.1.0" \
